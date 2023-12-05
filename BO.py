@@ -117,6 +117,13 @@ class BayesOpt_Random(BayesOpt):
         return y_recs
 
 
+class BALD(BayesOpt):
+    def __init__(self, dataset1, init_y_recs_size, y_space, x_space, f_oracle, g_oracle, num_round, num_repeat, cdf_dir, dump_dir, random_seed=24) -> None:
+        super().__init__(dataset1, init_y_recs_size, y_space, x_space, f_oracle, g_oracle, num_round, num_repeat, cdf_dir, dump_dir, random_seed)
+        
+    def rec_policy(self):
+        pass
+
 class BayesOpt_UCB(BayesOpt):
     def __init__(self, dataset1, init_y_recs_size, y_space, x_space, f_oracle, g_oracle, num_round, num_repeat, cdf_dir, dump_dir, random_seed=24) -> None:
         super().__init__(dataset1, init_y_recs_size, y_space, x_space, f_oracle, g_oracle, num_round, num_repeat, cdf_dir, dump_dir, random_seed)
