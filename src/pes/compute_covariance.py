@@ -22,11 +22,12 @@ import torch
 
 def covariance(x, y, model, l):
     with torch.no_grad():
-            return model.individuals_kernel(torch.tensor(x),torch.tensor(y)).evaluate()
+            # return model.individuals_kernel(torch.tensor(x),torch.tensor(y)).evaluate()
+        return model.individuals_kernel(x,y).evaluate()
     
 def bag_covariance(x, y, model):
     with torch.no_grad():
-        return model.bag_kernel(torch.tensor(x),torch.tensor(y)).evaluate()
+        return model.bag_kernel(x,y).evaluate()
     
 def covariance_cross(nObservations, x_input, model,λ):
     x,y,tilde_y=nObservations
@@ -692,8 +693,8 @@ def cov_gradXprime_max(xPrime, value_at_max, model, l, m):
 
 
 #Compute the covariance between x and [c,z] with f(x_min) being the last element in [c, z]
-def compute_cov_xPrime_cz(xPrime, Xsamples, x_minimum, num_of_obser, model, noise, l_vec):
-    x_nob = cov_xPrime_nObservations(xPrime, Xsamples, model, l_vec)
+def compute_cov_xPrime_cz(xPrime, nObservations, x_minimum, num_of_obser, model, noise, l_vec):
+    x_nob = cov_xPrime_nObservations(xPrime, nObservations, model, l_vec)
     x_grad_min = cov_xPrime_maxGrad(xPrime, x_minimum, model, l_vec)
     x_off_dia = cov_xPrime_nonDiaHess(xPrime, x_minimum, model, l_vec)
     x_dia_hess = cov_xPrime_diaHess(xPrime, x_minimum, model, l_vec)
@@ -734,6 +735,7 @@ def compute_K_z(x_minimum, model, sigma, l_vec, noise, d):
 def compute_K_c(nObservations, x_minimum, num_of_obser, model, sigma, noise, λ, l_vec):
     
     d = len(x_minimum)
+    x_minimum=x_minimum.reshape(-1,1)
     nob_nob = covNobeservations(nObservations, num_of_obser, model, noise, l_vec)
     nob_grad = cov_nObser_maxGrad(nObservations, x_minimum, num_of_obser, model, λ, l_vec)
     nob_off_dia = cov_nObser_off_maxHess(nObservations, x_minimum, num_of_obser, model,  λ,l_vec)

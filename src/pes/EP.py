@@ -1,7 +1,7 @@
 import numpy as np
 import scipy.linalg as spla
-from src.PES.utilities import *
-from src.PES.compute_covariance import *
+from src.pes.utilities import *
+from src.pes.compute_covariance import *
 
 
 
@@ -9,6 +9,7 @@ from src.PES.compute_covariance import *
 #B.1 and B.2 of the Appendix of the paper.
 #Parameters: @Xsamples: observations we have, which is the X_n
 #            @value_of_nObservations: the function values of the observations
+#            TODO: since we do not have observations for f(x), here we take [y_max] as value_of_nObservations, where y_max is a given side information 
 #            @num_of_obser: the number of the observations we have
 #            @x_minimum: the minimum we sampled from the approximate posterior distribution, which is the output of the 
 #                        sample_min_with_randFeatures function
@@ -20,17 +21,17 @@ from src.PES.compute_covariance import *
 #                          the actual hessians at the x_minimum. However, considering the computational cost, we use approximation 
 #                          of the hessians here. The author uses the same idea in his original code. For the original code, please visit 
 #                          https://bitbucket.org/jmh233/codepesnips2014/src/master/sourceFiles/. 
-def Expectation_Propagation(Xsamples, value_of_nObservations, num_of_obser, x_minimum, d, l_vec, sigma, noise, hess_at_min):
+def Expectation_Propagation(nObservations, value_of_nObservations, num_of_obser, x_minimum, d, l_vec, sigma, noise, hess_at_min, model, λ, y_min):
     
 
     #K_z, dimension is (d+1)x(d+1)
-    K_z = compute_K_z(x_minimum, sigma, l_vec, noise, d)
+    K_z = compute_K_z(x_minimum, model, sigma, l_vec, noise, d)
 
     #K_c, dimension is (n+d+d*(d-1)/2)x(n+d+d*(d-1)/2)
-    K_c = compute_K_c(Xsamples, x_minimum, num_of_obser, sigma, noise, l_vec)
+    K_c = compute_K_c(nObservations, x_minimum, num_of_obser, model, sigma, noise, λ, l_vec)
 
     #K_zc, dimension is (d+1)x(n+d+d*(d-1)/2)
-    K_cz = compute_K_cz(Xsamples, x_minimum, num_of_obser, sigma, noise, l_vec)
+    K_cz = compute_K_cz(nObservations, x_minimum, num_of_obser, model, λ, noise, l_vec)
     K_zc = K_cz.T
 
     #Covariance matrix between z and c, the dimension is ( (n+d+d*(d-1)/2) + (d+1))^2
@@ -56,7 +57,8 @@ def Expectation_Propagation(Xsamples, value_of_nObservations, num_of_obser, x_mi
     #v_0 is a (d+1)x(d+1) matrix
     v_0 = K_z - np.dot(np.dot(K_zc, K_c_inverse), K_cz)
 
-    min_of_nObservations = np.amin(value_of_nObservations)
+    # min_of_nObservations = np.amin(value_of_nObservations)
+    min_of_nObservations = y_min
 
     v_0_inverse = compute_inverse(v_0)
 
@@ -102,7 +104,7 @@ def Expectation_Propagation(Xsamples, value_of_nObservations, num_of_obser, x_mi
         m_bar_old_dia_hess = m_bar_old[:d]
         v_bar_old_dia_hess = v_bar_old[:d]
         
-     
+        # TODO: RuntimeWarning: invalid value encountered in sqrt
         alpha = np.divide(m_bar_old_dia_hess, np.sqrt(v_bar_old_dia_hess))
 
         phi_alpha_over_Phi_alpha = (1/np.sqrt(2*np.pi))*np.exp(-0.5*alpha**2 - log_Phi(alpha))
@@ -133,8 +135,9 @@ def Expectation_Propagation(Xsamples, value_of_nObservations, num_of_obser, x_mi
         v_tilde_new_last_inverse = np.divide(beta, 1.0 - np.multiply(beta, v_bar_old_max_cons))
 
         #Put the updated vectors together
-        m_tilde_new = np.concatenate((m_tilde_new_d, np.array([m_tilde_new_last])))
-        v_tilde_new_inverse = np.concatenate((v_tilde_new_d_inverse, np.array([v_tilde_new_last_inverse])))
+        # TODO: add reshape for now
+        m_tilde_new = np.concatenate((m_tilde_new_d, np.array([m_tilde_new_last]).reshape(-1,)))
+        v_tilde_new_inverse = np.concatenate((v_tilde_new_d_inverse, np.array([v_tilde_new_last_inverse]).reshape(-1,)))
 
         #For computational stability and edge cases, we use the same methods as the author used in the original code. For
         #original code, please visit https://bitbucket.org/jmh233/codepesnips2014/src/master/sourceFiles/.
@@ -181,6 +184,7 @@ def Expectation_Propagation(Xsamples, value_of_nObservations, num_of_obser, x_mi
         var_difference = np.abs(np.reciprocal(v_inverse) - np.reciprocal(v_old_inverse))
         max_difference =  max(np.amax(mean_difference), np.amax(var_difference)) 
         if  max_difference < 10**(-20):
+        # if  var_difference < 10**(-20):
             convergence = True
  
 
@@ -198,10 +202,11 @@ def Expectation_Propagation(Xsamples, value_of_nObservations, num_of_obser, x_mi
     #[c; m_tilde], dimension is ((d+1) + (n+d+d*(d-1)/2))x1, mAux
     c_and_m = np.array(np.concatenate((c, m_tilde)))
 
-    x_minimum_vec = np.array([x_minimum])
+    # x_minimum_vec = np.array([x_minimum])
+    x_minimum_vec = torch.tensor([x_minimum]).reshape(-1,1)
 
     #K_star_min is the cross-covariance column evaluated between f(x_min) and [z; c], its dimension is 1x((n+d+d*(d-1)/2)+(d+1))
-    K_star_min = compute_cov_xPrime_cz(x_minimum_vec, Xsamples, x_minimum, num_of_obser, sigma, noise, l_vec)
+    K_star_min = compute_cov_xPrime_cz(x_minimum_vec, nObservations, x_minimum, num_of_obser, model, noise, l_vec)
     
 
 
@@ -216,3 +221,4 @@ def Expectation_Propagation(Xsamples, value_of_nObservations, num_of_obser, x_mi
     v_f_minimum = sigma - np.dot(np.dot(K_star_min, K_plus_W_tilde_inverse), K_star_min.T)
 
     return K, K_star_min, K_plus_W_tilde_inverse, m_f_minimum, v_f_minimum, c_and_m
+    # return K, K_star_min, K_plus_W_tilde_inverse, v_f_minimum
