@@ -25,20 +25,42 @@ def log_Phi(x):
     return result
 
 
-
-    
-   
-
 #Function to compute the inverse of matrix A
 #Parameters: @A: the input matrix
-def compute_inverse(A):
+def compute_inverse(A, alpha = 1e-5):
+    A = A + alpha * np.eye(A.shape[0])
+    # print(A)
     try:
+        # Attempt Cholesky decomposition
         A_cholesky = spla.cho_factor(A)
+        
+        # Use Cholesky solve to compute the inverse
         A_inverse = spla.cho_solve(A_cholesky, np.eye(A.shape[0]))
+        
         return A_inverse
-    except:
-        A_inverse = spla.inv(A)
-        return A_inverse
+    
+    except spla.LinAlgError:
+        # print("Cholesky decomposition failed. Trying LU decomposition.")
+        try:
+            # Attempt LU decomposition
+            A_LU = spla.lu_factor(A)
+            
+            # Use LU solve to compute the inverse
+            A_inverse = spla.lu_solve(A_LU, np.eye(A.shape[0]))
+            
+            return A_inverse
+        
+        except spla.LinAlgError:
+            # print("LU decomposition also failed. Falling back to general inverse.")
+            A_inverse = spla.inv(A)
+            return A_inverse
+    # try:
+    #     A_cholesky = spla.cho_factor(A + alpha * np.eye(A.shape[0]))
+    #     A_inverse = spla.cho_solve(A_cholesky, np.eye(A.shape[0]))
+    #     return A_inverse
+    # except:
+    #     A_inverse = spla.inv(A+ alpha * np.eye(A.shape[0]))
+    #     return A_inverse
 
 
 

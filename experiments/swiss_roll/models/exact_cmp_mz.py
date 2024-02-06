@@ -38,8 +38,8 @@ def build_swiss_roll_exact_cmp(individuals, extended_bags_values, bags_values, a
     individuals_mean = gpytorch.means.ZeroMean()
 
     # Define individuals kernel
-    # base_individuals_kernel = gpytorch.kernels.RBFKernel(ard_num_dims=1)
-    base_individuals_kernel = LogTransformedRBFKernel()
+    base_individuals_kernel = gpytorch.kernels.RBFKernel(ard_num_dims=1)
+    # base_individuals_kernel = LogTransformedRBFKernel()
     base_individuals_kernel.initialize(raw_lengthscale=inv_softplus(x=1, n=1))
     individuals_kernel = gpytorch.kernels.ScaleKernel(base_individuals_kernel)
     # individuals_kernel = base_individuals_kernel

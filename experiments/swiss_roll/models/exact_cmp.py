@@ -29,8 +29,10 @@ def build_swiss_roll_exact_cmp(individuals, extended_bags_values, bags_values, a
     individuals_mean = gpytorch.means.ZeroMean()
 
     # Define individuals kernel
-    base_individuals_kernel = gpytorch.kernels.RBFKernel(ard_num_dims=3)
-    base_individuals_kernel.initialize(raw_lengthscale=inv_softplus(x=1, n=3))
+    base_individuals_kernel = gpytorch.kernels.RBFKernel(ard_num_dims=1)
+    base_individuals_kernel.initialize(raw_lengthscale=inv_softplus(x=1, n=1))
+    # base_individuals_kernel = gpytorch.kernels.RBFKernel(ard_num_dims=3)
+    # base_individuals_kernel.initialize(raw_lengthscale=inv_softplus(x=1, n=3))
     individuals_kernel = gpytorch.kernels.ScaleKernel(base_individuals_kernel)
     # individuals_kernel = base_individuals_kernel
 
@@ -142,8 +144,8 @@ def get_epoch_logs(model, groundtruth_individuals, groundtruth_targets, chunk_si
     epoch_logs.update({'aggregate_noise': model.likelihood.noise.detach().item(),
                        'k_outputscale': model.individuals_kernel.outputscale.detach().item(),
                        'k_lengthscale_x': k_lengthscales[0],
-                       'k_lengthscale_y': k_lengthscales[1],
-                       'k_lengthscale_z': k_lengthscales[2],
+                    #    'k_lengthscale_y': k_lengthscales[1],
+                    #    'k_lengthscale_z': k_lengthscales[2],
                        'l_outputscale': model.bag_kernel.outputscale.detach().item(),
                        'l_lengthscale': l_lengthscales[0]})
     if model.noise_kernel:

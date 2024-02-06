@@ -56,9 +56,10 @@ def Expectation_Propagation(nObservations, value_of_nObservations, num_of_obser,
 
     #v_0 is a (d+1)x(d+1) matrix
     v_0 = K_z - np.dot(np.dot(K_zc, K_c_inverse), K_cz)
+    #----------------------------------------------------------------
 
-    # min_of_nObservations = np.amin(value_of_nObservations)
-    min_of_nObservations = y_min
+    min_of_nObservations = torch.min(value_of_nObservations)
+    # min_of_nObservations = y_min
 
     v_0_inverse = compute_inverse(v_0)
 
@@ -79,7 +80,6 @@ def Expectation_Propagation(nObservations, value_of_nObservations, num_of_obser,
     
     
     while ((not convergence)):
-        
         #the m vector in the paper before EP
         m_old = m.astype(float) 
 
@@ -95,10 +95,11 @@ def Expectation_Propagation(nObservations, value_of_nObservations, num_of_obser,
         v_bar_old = np.reciprocal(v_old_inverse - v_tilde_old_inverse)
         #the m_bar vector before EP
         m_bar_old = np.multiply(v_bar_old, np.multiply(m_old, v_old_inverse) - np.multiply(m_tilde_old, v_tilde_old_inverse))
-
+        # --------------------------------------------------------------------------
 
         #Note since we are doing the minimization instead of maximization(in the paper), we should be careful for the sign 
         #of each quantity while conducting EP. 
+        # TODO: check the signs 
 
         #First we do EP for the factors corresponding to the constraints on the diagonal Hessian
         m_bar_old_dia_hess = m_bar_old[:d]
@@ -115,10 +116,10 @@ def Expectation_Propagation(nObservations, value_of_nObservations, num_of_obser,
         #Update m_tilde and V_tilde^(-1) vectors 
         m_tilde_new_d = m_bar_old_dia_hess + np.reciprocal(k)
         v_tilde_new_d_inverse = np.divide(beta, np.ones((len(beta))) - np.multiply(beta, v_bar_old_dia_hess))
-
+        #-------------------------------------------------------------------
 
         #EP for the soft maximum constraint
-        m_bar_old_max_cons = min_of_nObservations - m_bar_old[-1]
+        m_bar_old_max_cons = min_of_nObservations - m_bar_old[-1] # NOTE: if it is max, need to reverse the sign
         v_bar_old_max_cons = v_bar_old[-1] + noise
 
 
@@ -128,7 +129,7 @@ def Expectation_Propagation(nObservations, value_of_nObservations, num_of_obser,
 
         beta = np.divide(np.multiply(phi_alpha_over_Phi_alpha, phi_alpha_over_Phi_alpha + alpha), v_bar_old_max_cons)
         k = np.divide(phi_alpha_over_Phi_alpha + alpha, np.sqrt(v_bar_old_max_cons))
-        k = -k
+        k = -k # NOTE: if it is max, need to reverse the sign
 
         #Update m_tilde and V_tilde^(-1) vectors 
         m_tilde_new_last = m_bar_old_max_cons + np.reciprocal(k)
@@ -194,9 +195,13 @@ def Expectation_Propagation(nObservations, value_of_nObservations, num_of_obser,
 
         count = count + 1
         
-
+    v_tilde_inverse[abs(v_tilde_inverse) < 10**(-300)] = 10**(-300) # TODO: add numerical adjust again
+    
+    # print('v_tilde_inverse:', v_tilde_inverse)    
     v_tilde = np.reciprocal(v_tilde_inverse)
     #[K + W_tilde], dimension is ((d+1) + (n+d+d*(d-1)/2))^2
+    # print('K: ', K)
+    # print('v_tilde: ', v_tilde)
     K_plus_W_tilde_inverse = compute_inverse(np.diag(np.concatenate((np.zeros(int(n+d+d*(d-1)/2)), v_tilde))) + K)
 
     #[c; m_tilde], dimension is ((d+1) + (n+d+d*(d-1)/2))x1, mAux
