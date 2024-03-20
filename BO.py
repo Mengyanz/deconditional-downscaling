@@ -17,6 +17,10 @@ import yaml
 import torch
 import wandb
 
+import numpy as np
+import torch
+from DMES import qDeMaxValueEntropy
+from botorch.optim import optimize_acqf
 # We will use the simplest form of GP model, exact inference
 class ExactGPModel(gpytorch.models.ExactGP):
     def __init__(self, train_x, train_y, likelihood):
@@ -30,7 +34,7 @@ class ExactGPModel(gpytorch.models.ExactGP):
         return gpytorch.distributions.MultivariateNormal(mean_x, covar_x)
     
 class BayesOpt():
-    def __init__(self, dataset1, init_y_recs_size, y_space, x_space, f_oracle, g_oracle, num_round, num_repeat, cdf_dir, dump_dir, random_seeds) -> None:
+    def __init__(self, dataset1, init_y_recs_size, y_space, x_space, f_oracle, g_oracle, num_round, num_repeat, cdf_dir, dump_dir, random_seeds, normalisation = False) -> None:
         self.xs, self.ys= dataset1 # dataset 1 - x, y pairs
         self.y_space = y_space
         self.x_space = x_space
@@ -43,12 +47,17 @@ class BayesOpt():
         self.dump_dir = dump_dir
         self.init_y_recs_size = init_y_recs_size
         self.random_seeds = random_seeds
+        self.normalisation = normalisation
         
         os.makedirs(dump_dir, exist_ok=True)
         
     def update_model(self):
-        self.muz, self.sigmaz = self.z_rewards.mean(), self.z_rewards.std()
-        normalised_z_rewards = (self.z_rewards - self.muz) / self.sigmaz
+        if self.normalisation:
+            self.muz, self.sigmaz = self.z_rewards.mean(), self.z_rewards.std()
+            normalised_z_rewards = (self.z_rewards - self.muz) / self.sigmaz
+        else:
+            self.muz, self.sigmaz = 0, 1
+            normalised_z_rewards = self.z_rewards
         
         self.cfg['model'].update(individuals=self.xs,
                                 extended_bags_values=self.ys,
@@ -72,7 +81,7 @@ class BayesOpt():
                             )
         train_model(self.cfg['training'])
         
-    def predict_fx(self, num_exp, num_iter, plot_flag = False):
+    def predict_fx(self, num_exp=0, num_iter=0, plot_flag = False):
         predict_kwargs = {'name': self.cfg['model']['name'],
                 'model': self.model.eval().cpu(),
                 'individuals': self.x_space,
@@ -91,12 +100,34 @@ class BayesOpt():
             plt.xlim(self.x_space[0], self.x_space[-1])
             # plt.ylim(1.5 * self.y_space[0], 1.5 * self.y_space[-1])
             # plt.plot(xs, f(xs), '.', label = 'data points')
+            plt.plot(self.y_recs, self.z_rewards, '.', label = 'observations z')
             plt.title('Iteration: ' + str(num_iter))
             plt.legend()
             plt.savefig(f"{self.dump_dir}predf/frame_{num_exp}_{num_iter}.png")
             plt.clf()
         return individuals_posterior_mean, stddev, individuals_posterior
+    
+    def predict_gy(self, num_exp=0, num_iter=0, plot_flag = False):
+        # TODO: not in used yet
+        md,_, xs_posterior = self.predict_fx(num_exp, num_iter, plot_flag)
         
+        with torch.no_grad():
+            Kd = self.sigmaz**2 * xs_posterior.covariance_matrix
+
+            N = len(self.y_space)
+            λ = 0.01
+            Lλ = self.model.bag_kernel(self.y_space, self.y_space).add_diag(λ * N * torch.ones(N))
+            chol = torch.linalg.cholesky(Lλ.evaluate())
+            
+            Lys_ys2 = self.model.bag_kernel(self.y_space, self.x_space).evaluate()
+            Lλinv_Lys_ys2 = torch.cholesky_solve(Lys_ys2, chol)
+            
+            g_cov = Lλinv_Lys_ys2.T @ Kd @ Lλinv_Lys_ys2 # this is the term in (12)
+            
+            phi_x = self.model.individuals_kernel(self.x_space, self.x_space)
+            g_mu =  Lλinv_Lys_ys2.T @  phi_x @ md
+            
+            return g_mu, g_cov
     
     def init_y_recs(self, j):
         np.random.seed(int(self.random_seeds[j]))
@@ -116,18 +147,18 @@ class BayesOpt():
             os.makedirs(self.dump_dir + 'predf/', exist_ok=True)
             os.makedirs(self.dump_dir + 'obj/', exist_ok=True)
         for j in tqdm(range(self.n_repeat)): 
-            wandb.init(
-                    # set the wandb project where this run will be logged
-                    project="bodd",
+            # wandb.init(
+            #         # set the wandb project where this run will be logged
+            #         project="bodd",
                     
-                    # track hyperparameters and run metadata
-                    config={
-                    "policy": self.__class__.__name__,
-                    "f": self.f_oracle,
-                    "g": self.g_oracle,
-                    'num_exp': j
-                    }
-                )
+            #         # track hyperparameters and run metadata
+            #         config={
+            #         "policy": self.__class__.__name__,
+            #         "f": self.f_oracle,
+            #         "g": self.g_oracle,
+            #         'num_exp': j
+            #         }
+            #     )
             pos_best = []
             self.y_recs, self.z_rewards = self.init_y_recs(j)
             for i in tqdm(range(self.n-self.init_y_recs_size)):
@@ -151,14 +182,14 @@ class BayesOpt():
                 opt = torch.min(self.f_oracle(self.x_space))
                 regret = torch.abs(opt - pos_best_j)
                 
-                wandb.log({
-                    "regret": regret,
-                    "pos_best": pos_best_j,
-                    "x_opt": x_opt,
-                    "y_rec": y_rec,
-                    "z_reward": z_reward,
-                    "elapsed_time": elapsed_time 
-                    })
+                # wandb.log({
+                #     "regret": regret,
+                #     "pos_best": pos_best_j,
+                #     "x_opt": x_opt,
+                #     "y_rec": y_rec,
+                #     "z_reward": z_reward,
+                #     "elapsed_time": elapsed_time 
+                #     })
 
                 print(f"Iteration {i + 1}: Elapsed Time: {elapsed_time} seconds")
             pos_bests.append(pos_best)
@@ -179,7 +210,7 @@ class BayesOpt():
 
                 # Save the GIF
                 frames[0].save(self.dump_dir + "obj/obj_animation_" + str(j) + '_' + str(i) + '.gif', save_all=True, append_images=frames[1:], duration=500, loop=0)
-            wandb.finish()
+            # wandb.finish()
         # self.evalaution(pos_bests)
         return pos_bests
     
@@ -199,6 +230,66 @@ class BayesOpt_Random(BayesOpt):
             plt.clf()
         return torch.tensor(rec_y), None
     
+class MES(BayesOpt):
+    def __init__(self, dataset1, init_y_recs_size, y_space, x_space, f_oracle, g_oracle, num_round, num_repeat, cdf_dir, dump_dir, random_seeds, maximize = True) -> None:
+        super().__init__(dataset1, init_y_recs_size, y_space, x_space, f_oracle, g_oracle, num_round, num_repeat, cdf_dir, dump_dir, random_seeds)
+        self.maximize = maximize
+        
+    def rec_policy(self, mean, std, posterior, num_exp, num_iter, plot_flag=False):
+        tkwargs = {"dtype": torch.float, "device": "cpu"}
+        # bounds = torch.tensor([[self.y_space[0]], [self.y_space[-1]]], **tkwargs)
+        # candidate_set = torch.rand(
+        #     1000, bounds.size(1), device=bounds.device, dtype=bounds.dtype
+        # )
+        # candidate_set = bounds[0] + (bounds[1] - bounds[0]) * candidate_set
+        
+        x_bounds = torch.tensor([[self.x_space[0]], [self.x_space[-1]]], **tkwargs)
+        # x_set = torch.rand(
+        #     1000, x_bounds.size(1), device=x_bounds.device, dtype=x_bounds.dtype
+        # )
+        x_set=torch.linspace(0,1,steps=1000,device=x_bounds.device, dtype=x_bounds.dtype)
+        x_set = x_bounds[0] + (x_bounds[1] - x_bounds[0]) * x_set
+ 
+        qMES = qDeMaxValueEntropy(self.model,x_set=x_set, maximize=self.maximize, normalise_para = [self.muz, self.sigmaz])
+        fwd_y = self.y_space #.unsqueeze(-1) #.unsqueeze(-1)
+        mes_y = qMES(fwd_y).detach().numpy()
+        rec = torch.tensor([self.y_space[mes_y.argmax()]]) # TODO: check max or min 
+        
+        # report posterior of g
+        fig = plt.figure()
+        
+        with torch.no_grad():
+            posterior_m = self.model(fwd_y)
+            mean = self.sigmaz * posterior_m.mean + self.muz
+            std = self.sigmaz * posterior_m.stddev
+        plt.plot(fwd_y, mean, label = 'posterior mean', color='C0')
+        plt.fill_between(fwd_y, mean - 2 * std, mean + 2 * std, alpha=0.3, color='C0')
+        plt.plot(self.y_recs[:-2], self.z_rewards[:-2], '.', label = 'observations')
+        plt.plot(self.y_recs[-1], self.z_rewards[-1], '.', color='red')
+        # plt.plot(groundtruth_individuals, (conf[1]-conf[0]).detach().numpy(), label = '2 * posterior std')
+        # plt.plot(fwd_y, self.g_oracle(fwd_y), label = 'g(y)', color='C1')
+        plt.title('posterior of g and observations')
+        plt.xlim(fwd_y[0], fwd_y[-1])
+        plt.ylim(-5, 5)
+        # plt.ylim(0,1)
+        plt.legend()
+        # plt.savefig(f"{self.dump_dir}predf/frame_{num_exp}_{num_iter}.png")
+        plt.show()
+        plt.close(fig)
+        
+        if plot_flag:
+            plt.plot(self.y_space, mes_y, label='objective')
+            plt.xlim(self.y_space[0], self.y_space[-1])
+            # plt.ylim(-3, 1) 
+            plt.axvline(x=rec, color='red', linestyle='--', label='rec')
+            plt.xlabel('y')
+            plt.title('Iteration: ' + str(num_iter))
+            plt.legend()
+            plt.savefig(f"{self.dump_dir}obj/frame_{num_exp}_{num_iter}.png")
+            plt.clf()
+        return torch.tensor(rec), None
+        
+   
 class PES(BayesOpt):
     def __init__(self, dataset1, init_y_recs_size, y_space, x_space, f_oracle, g_oracle, num_round, num_repeat, cdf_dir, dump_dir, y_min, λ, num_opt_samples, random_seeds) -> None:
         super().__init__(dataset1, init_y_recs_size, y_space, x_space, f_oracle, g_oracle, num_round, num_repeat, cdf_dir, dump_dir, random_seeds)
