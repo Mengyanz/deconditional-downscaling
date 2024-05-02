@@ -451,15 +451,15 @@ class qDeMaxValueEntropy(DeDiscreteMaxValueBase, MCSamplerMixin):
         # print('H0 shape: ', H0.shape)
         # print('H1 shape: ', H1_hat.shape)
         # print('IG shape: ', ig.shape)
-        fig = plt.figure()
-        # plt.plot(X.squeeze(-1).detach().numpy() , H0.squeeze(-1).detach().numpy() , label = 'H0')
-        # plt.plot(X.squeeze(-1).detach().numpy(), H1_hat.squeeze(-1).detach().numpy(), label = 'H1')
-        plt.plot(X.squeeze(-1).detach().numpy(), ig.squeeze(-1).detach().numpy(), label = 'IG') 
-        # plt.ylim(0,1)
-        plt.title('MES objective function')
-        plt.legend()
-        plt.show()
-        plt.close(fig) 
+        # fig = plt.figure()
+        # # plt.plot(X.squeeze(-1).detach().numpy() , H0.squeeze(-1).detach().numpy() , label = 'H0')
+        # # plt.plot(X.squeeze(-1).detach().numpy(), H1_hat.squeeze(-1).detach().numpy(), label = 'H1')
+        # plt.plot(X.squeeze(-1).detach().numpy(), ig.squeeze(-1).detach().numpy(), label = 'IG') 
+        # plt.ylim(0,0.05)
+        # plt.title('MES objective function')
+        # plt.legend()
+        # plt.show()
+        # plt.close(fig) 
         
         if self.posterior_max_values.ndim == 2:
             permute_idcs = [-1, *range(ig.ndim - 1)]
@@ -561,11 +561,11 @@ def _sample_max_value_Thompson(
     Returns:
         A `num_samples x num_fantasies` Tensor of posterior max value samples.
     """
-    print('_sample_max_value_Thompson')
+    # print('_sample_max_value_Thompson')
     posterior = model.predict(candidate_set)
     muz, sigmaz = normalise_para
-    print('normalise muz: ', muz)
-    print('normalise sigmaz: ', sigmaz)
+    # print('normalise muz: ', muz)
+    # print('normalise sigmaz: ', sigmaz)
     # mean = sigmaz * posterior.mean + muz
     # covariance_matrix = sigmaz ** 2 * posterior.covariance_matrix # not positive definite
     # posterior = MultivariateNormal(mean = mean, covariance_matrix=covariance_matrix)
@@ -579,25 +579,25 @@ def _sample_max_value_Thompson(
     if len(samples.shape) == 2:
         max_values = max_values.unsqueeze(-1)  # num_samples x num_fantasies
         
-    fig = plt.figure()
-    candidate_set=candidate_set.reshape(-1,)
-    mean = sigmaz * posterior.mean + muz
-    std = sigmaz * posterior.stddev
-    plt.plot(candidate_set, mean, label = 'posterior mean', color='C0')
-    plt.fill_between(candidate_set, mean - 2 * std, mean + 2 * std, alpha=0.3, color='C0')
-    # plt.plot(groundtruth_individuals, (conf[1]-conf[0]).detach().numpy(), label = '2 * posterior std')
-    # plt.plot(self.x_space, self.f_oracle(self.x_space), label = 'f(x)', color='C1')
-    plt.xlim(candidate_set[0], candidate_set[-1])
-    # plt.ylim(-5, 5)
-    # plt.plot(xs, f(xs), '.', label = 'data points')
-    for i, sample in enumerate(samples[:10]):
-        plt.plot(candidate_set, sample, alpha = 0.5)
-        plt.axhline(y=max_values[i], alpha = 0.5)
-    # plt.plot(self.y_recs, self.z_rewards, '.', label = 'observations z')
-    plt.title('Posterior f and samples, max values via TS')
-    plt.legend()
-    # plt.savefig(f"{self.dump_dir}predf/frame_{num_exp}_{num_iter}.png")
-    plt.show()
-    plt.close(fig)
+    # fig = plt.figure()
+    # candidate_set=candidate_set.reshape(-1,)
+    # mean = sigmaz * posterior.mean + muz
+    # std = sigmaz * posterior.stddev
+    # plt.plot(candidate_set, mean, label = 'posterior mean', color='C0')
+    # plt.fill_between(candidate_set, mean - 2 * std, mean + 2 * std, alpha=0.3, color='C0')
+    # # plt.plot(groundtruth_individuals, (conf[1]-conf[0]).detach().numpy(), label = '2 * posterior std')
+    # # plt.plot(self.x_space, self.f_oracle(self.x_space), label = 'f(x)', color='C1')
+    # plt.xlim(candidate_set[0], candidate_set[-1])
+    # # plt.ylim(-5, 5)
+    # # plt.plot(xs, f(xs), '.', label = 'data points')
+    # for i, sample in enumerate(samples[:10]):
+    #     plt.plot(candidate_set, sample, alpha = 0.5)
+    #     plt.axhline(y=max_values[i], alpha = 0.5)
+    # # plt.plot(self.y_recs, self.z_rewards, '.', label = 'observations z')
+    # plt.title('Posterior f and samples, max values via TS')
+    # plt.legend()
+    # # plt.savefig(f"{self.dump_dir}predf/frame_{num_exp}_{num_iter}.png")
+    # plt.show()
+    # plt.close(fig)
 
     return max_values

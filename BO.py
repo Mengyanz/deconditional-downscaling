@@ -1,5 +1,6 @@
 import numpy as np
 import math
+import random
 import matplotlib.pyplot as plt
 from scipy.special import digamma
 from sklearn.gaussian_process import GaussianProcessRegressor
@@ -130,9 +131,11 @@ class BayesOpt():
             return g_mu, g_cov
     
     def init_y_recs(self, j):
-        np.random.seed(int(self.random_seeds[j]))
-        y_recs = np.random.uniform(self.y_space[0], self.y_space[-1], self.init_y_recs_size)
-        z_rewards = np.array([self.g_oracle(y) for y in y_recs])
+        random.seed(int(self.random_seeds[j]))
+        # y_recs = np.random.uniform(self.y_space[0], self.y_space[-1], self.init_y_recs_size)
+        y_recs = np.array(random.sample(list(self.y_space), self.init_y_recs_size))
+        # print("y_recs: ", y_recs.shape)
+        z_rewards = np.array([self.g_oracle(y) for y in y_recs]).reshape(-1,)
         print(y_recs)
         return torch.from_numpy(y_recs).float(), torch.from_numpy(z_rewards).float()
         
@@ -142,7 +145,8 @@ class BayesOpt():
        
     def simulation(self):
         pos_bests = []
-        plot_flag = True
+        z_rewards_all = []
+        plot_flag = False
         if plot_flag:
             os.makedirs(self.dump_dir + 'predf/', exist_ok=True)
             os.makedirs(self.dump_dir + 'obj/', exist_ok=True)
@@ -167,12 +171,15 @@ class BayesOpt():
                 start_time = time.time()
                 self.update_model()
                 mean, std, posterior = self.predict_fx(j, i, plot_flag=plot_flag)
-                pos_best_j = self.f_oracle(self.x_space[np.argmin(mean)])
+                pos_best_j = self.f_oracle(self.x_space[np.argmax(mean)])
                 pos_best.append(pos_best_j)
                 y_rec, x_opt= self.rec_policy(mean, std, posterior, j, i, plot_flag=plot_flag)
                 # self.y_recs = np.append(self.y_recs, y_rec)
+                # print("y_rec: ", y_rec.shape)
+                # print("self.y_recs: ", self.y_recs.shape)
+                # self.y_recs = torch.cat((self.y_recs, y_rec.view(1).float()), dim=0)
                 self.y_recs = torch.cat((self.y_recs, y_rec.view(1).float()), dim=0)
-                z_reward = torch.tensor(self.g_oracle(y_rec))
+                z_reward = torch.tensor(self.g_oracle(y_rec.T))
                 # self.z_rewards = np.append(self.z_rewards, z_reward)
                 self.z_rewards = torch.cat((self.z_rewards, z_reward.view(1).float()), dim=0)
                 # print(len(self.y_recs))
@@ -193,6 +200,7 @@ class BayesOpt():
 
                 print(f"Iteration {i + 1}: Elapsed Time: {elapsed_time} seconds")
             pos_bests.append(pos_best)
+            z_rewards_all.append(self.z_rewards)
             if plot_flag:
                 # Create a GIF from the frames
                 frames = []
@@ -212,7 +220,7 @@ class BayesOpt():
                 frames[0].save(self.dump_dir + "obj/obj_animation_" + str(j) + '_' + str(i) + '.gif', save_all=True, append_images=frames[1:], duration=500, loop=0)
             # wandb.finish()
         # self.evalaution(pos_bests)
-        return pos_bests
+        return pos_bests, z_rewards_all
     
 class BayesOpt_Random(BayesOpt):
     def __init__(self, dataset1, init_y_recs_size, y_space, x_space, f_oracle, g_oracle, num_round, num_repeat, cdf_dir, dump_dir, random_seeds) -> None:
@@ -220,7 +228,8 @@ class BayesOpt_Random(BayesOpt):
         
     def rec_policy(self, mean, std, posterior, num_exp, num_iter, plot_flag):
         # np.random.seed(self.random_seed)
-        rec_y = np.random.uniform(self.y_space[0], self.y_space[-1], 1)
+        # rec_y = np.random.uniform(self.y_space[0], self.y_space[-1], 1)
+        rec_y = np.array(random.sample(list(self.y_space), 1))
         if plot_flag:
             plt.axvline(x=rec_y, color='red', linestyle='--', label='rec')
             plt.xlabel('y')
@@ -253,7 +262,10 @@ class MES(BayesOpt):
         qMES = qDeMaxValueEntropy(self.model,x_set=x_set, maximize=self.maximize, normalise_para = [self.muz, self.sigmaz])
         fwd_y = self.y_space #.unsqueeze(-1) #.unsqueeze(-1)
         mes_y = qMES(fwd_y).detach().numpy()
-        rec = torch.tensor([self.y_space[mes_y.argmax()]]) # TODO: check max or min 
+        # print("mes_y: ", mes_y.shape)
+        # print('mes_y.argmax(): ', mes_y.argmax())
+        # rec = torch.tensor([self.y_space[mes_y.argmax()]]) # TODO: check max or min 
+        rec = self.y_space[mes_y.argmax()].reshape(1,-1)
         
         # report posterior of g
         fig = plt.figure()
@@ -262,20 +274,22 @@ class MES(BayesOpt):
             posterior_m = self.model(fwd_y)
             mean = self.sigmaz * posterior_m.mean + self.muz
             std = self.sigmaz * posterior_m.stddev
-        plt.plot(fwd_y, mean, label = 'posterior mean', color='C0')
-        plt.fill_between(fwd_y, mean - 2 * std, mean + 2 * std, alpha=0.3, color='C0')
-        plt.plot(self.y_recs[:-2], self.z_rewards[:-2], '.', label = 'observations')
-        plt.plot(self.y_recs[-1], self.z_rewards[-1], '.', color='red')
-        # plt.plot(groundtruth_individuals, (conf[1]-conf[0]).detach().numpy(), label = '2 * posterior std')
-        # plt.plot(fwd_y, self.g_oracle(fwd_y), label = 'g(y)', color='C1')
-        plt.title('posterior of g and observations')
-        plt.xlim(fwd_y[0], fwd_y[-1])
-        plt.ylim(-5, 5)
-        # plt.ylim(0,1)
-        plt.legend()
-        # plt.savefig(f"{self.dump_dir}predf/frame_{num_exp}_{num_iter}.png")
-        plt.show()
-        plt.close(fig)
+            
+        # This is the posterior of g -- plot
+        # plt.plot(fwd_y, mean, label = 'posterior mean', color='C0')
+        # plt.fill_between(fwd_y, mean - 2 * std, mean + 2 * std, alpha=0.3, color='C0')
+        # plt.plot(self.y_recs[:-2], self.z_rewards[:-2], '.', label = 'observations')
+        # plt.plot(self.y_recs[-1], self.z_rewards[-1], '.', color='red')
+        # # plt.plot(groundtruth_individuals, (conf[1]-conf[0]).detach().numpy(), label = '2 * posterior std')
+        # # plt.plot(fwd_y, self.g_oracle(fwd_y), label = 'g(y)', color='C1')
+        # plt.title('posterior of g and observations')
+        # plt.xlim(fwd_y[0], fwd_y[-1])
+        # plt.ylim(-5, 5)
+        # # plt.ylim(0,1)
+        # plt.legend()
+        # # plt.savefig(f"{self.dump_dir}predf/frame_{num_exp}_{num_iter}.png")
+        # plt.show()
+        # plt.close(fig)
         
         if plot_flag:
             plt.plot(self.y_space, mes_y, label='objective')
@@ -397,9 +411,10 @@ class BALD(BayesOpt):
         pass
 
 class BayesOpt_UCB(BayesOpt):
-    def __init__(self, dataset1, init_y_recs_size, y_space, x_space, f_oracle, g_oracle, num_round, num_repeat, cdf_dir, dump_dir, random_seeds) -> None:
+    def __init__(self, dataset1, init_y_recs_size, y_space, x_space, f_oracle, g_oracle, num_round, num_repeat, cdf_dir, dump_dir, random_seeds, alpha = 2) -> None:
         super().__init__(dataset1, init_y_recs_size, y_space, x_space, f_oracle, g_oracle, num_round, num_repeat, cdf_dir, dump_dir, random_seeds)
         self.x_to_y_model, self.x_to_y_likelihood = self.build_transform_x_to_y()
+        self.alpha = alpha
         
         
     def build_transform_x_to_y(self):
@@ -448,11 +463,11 @@ class BayesOpt_UCB(BayesOpt):
         mean= observed_pred.mean.numpy()
         return mean
     
-    def rec_policy(self, mean, std, posterior, alpha = 2):
-        rec_x = self.x_space[np.argmin(mean - alpha * std)]
+    def rec_policy(self, mean, std, posterior, j, i, plot_flag=False):
+        rec_x = self.x_space[np.argmin(mean - self.alpha * std)]
         rec_y = self.transform_x_to_y(rec_x)
         # print(rec_y)
-        return torch.tensor(rec_y)
+        return torch.tensor(rec_y).reshape(1,-1), None
     
     
 def evalaution(self, pos_bests):
